@@ -7,7 +7,7 @@ import time
 # 페이지/테마 기본 설정
 # -------------------------
 st.set_page_config(
-    page_title="오늘의 대화 - 또랑이",
+    page_title="당신의 소중한 말벗 또랑이",
     page_icon="🍊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -36,7 +36,7 @@ PALETTE = {
 with st.sidebar:
     mood = st.selectbox(
         "오늘 기분은 어떠신가요?",
-        ["😊 좋아요", "🙂 평온해요", "😐 그저 그래요", "😴 피곤해요", "🥺 속상해요", "😡 화가 나요"],
+        ["😊 기쁘다", "😰 불안하다", "😭 우울하다", "☹️ 기분이 오락가락한다"],
         index=0,
         help="기분을 선택하시면 또랑이가 대화 분위기를 맞추는 데 참고해요.",
     )
