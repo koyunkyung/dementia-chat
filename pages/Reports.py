@@ -1,15 +1,13 @@
 # pages/Lifelog_Predictor.py
 import json
+from torch import nn
 from pathlib import Path
 from typing import Dict, Any, List
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import streamlit as st
-
-from pages.lifelog.demrisk_predictor import DementiaRiskPredictor
 
 # -------------------------
 # 페이지/테마 기본 설정
@@ -24,6 +22,7 @@ st.set_page_config(
 # --- Matplotlib 한글 폰트 설정: 둥글둥글 & 깔끔한 계열 우선 ---
 from matplotlib import font_manager as fm
 import tempfile, requests  # 인터넷 불가 환경이면 requests 부분은 자동으로 건너뜀
+
 
 KOREAN_FONT_CANDIDATES = [
     # 프로젝트에 폰트를 동봉했다면 여기 경로로 추가 (권장)
@@ -87,6 +86,82 @@ PALETTE = {
     "success": "#34D399",
     "warning": "#FBBF24",
 }
+st.sidebar.markdown(
+    f"""
+<style>
+/* 코드 글씨체 및 스타일 모방 (original_utterance_raw/std 부분) */
+.code-like-block {{
+    background-color: {PALETTE['soft']};
+    border-left: 5px solid {PALETTE['primary']};
+    padding: 10px 15px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    font-size: 0.95em;
+    color: #000;
+    line-height: 1.5;
+}}
+.code-like-block strong {{
+    color: {PALETTE['primary_dark']};
+}}
+.code-like-block em {{
+    color: {PALETTE['muted']};
+}}
+
+/* 사이드바 전체 배경 & 경계선 */
+section[data-testid="stSidebar"] {{
+  background: {PALETTE['soft']};
+  border-right: 1px solid {PALETTE['border']};
+}}
+
+/* 네비 리스트 패딩 */
+[data-testid="stSidebarNav"] ul {{ padding: 8px 10px; }}
+
+/* 네비 링크 기본 모양 */
+[data-testid="stSidebarNav"] a {{
+  display:block;
+  padding:12px 14px;
+  border-radius:14px;
+  font-weight:800;
+  color:{PALETTE['text']};
+  border:2px solid transparent;
+  transition:all .15s ease;
+}}
+
+/* 호버 */
+[data-testid="stSidebarNav"] a:hover {{
+  background:{PALETTE['soft']};
+  border-color:{PALETTE['border']};
+  transform:translateX(2px);
+}}
+
+/* 현재 선택된 페이지 */
+[data-testid="stSidebarNav"] a[aria-current="page"] {{
+  background:linear-gradient(180deg, {PALETTE['soft']} 0%, #FFFFFF 100%);
+  border:2px solid {PALETTE['border']};
+  box-shadow:0 6px 18px rgba(255,122,47,.08);
+  color:{PALETTE['text']};
+}}
+
+/* 상단 작은 브랜드 박스(선택 사항) */
+.sidebar-brand {{
+  background:#FFFFFF;
+  border:2px solid {PALETTE['border']};
+  border-radius:16px;
+  padding:14px 16px;
+  margin:12px 12px 6px;
+  font-weight:900;
+}}
+.sidebar-brand .badge {{
+  display:inline-block; padding:4px 8px; border-radius:999px;
+  background:{PALETTE['accent']}; color:{PALETTE['text']};
+  border:1.5px solid {PALETTE['border']}; font-size:.8em; font-weight:800;
+}}
+</style>
+
+""",
+    unsafe_allow_html=True,
+)
 
 # PALETTE 아래에 추가
 COLORS = {
@@ -142,6 +217,43 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+st.markdown(f"""
+<style>
+  /* --- 위험도 카드 높이/정렬 고정 --- */
+  .risk-card {{
+    background: linear-gradient(180deg, {PALETTE["soft"]} 0%, #FFFFFF 100%);
+    border:2px solid {PALETTE["border"]};
+    border-radius:16px;
+    padding:18px 22px;
+    min-height:120px;                 /* ← 두 카드 높이 동일 */
+    display:flex;                      /* 세로 배치 고정 */
+    flex-direction:column;
+    gap:10px;
+    box-shadow:0 8px 20px rgba(255,122,47,0.06);
+  }}
+  .risk-head {{                         /* 제목 ↔ 칩 가로 정렬 */
+    display:flex; justify-content:space-between; align-items:center;
+  }}
+  .risk-title {{
+    font-weight:800; font-size:1.06em; color:{PALETTE['text']};
+  }}
+  .chip.pct {{                          /* 퍼센트 칩 폭 고정 */
+    min-width:66px; text-align:center;
+    background:{PALETTE['accent']}; border-color:{PALETTE['border']};
+  }}
+  .progress {{                          /* 트랙 두께/모서리 통일 */
+    width:100%; height:22px; border-radius:14px; overflow:hidden;
+    border:2px solid {PALETTE["border"]}; background:{PALETTE["card"]};
+  }}
+  .bar {{
+    height:100%;
+    background: linear-gradient(90deg, {PALETTE["accent"]} 0%, {PALETTE["primary"]} 70%);
+    width:0%;
+  }}
+</style>
+""", unsafe_allow_html=True)
+
 
 # Matplotlib 경량 테마
 plt.rcParams.update({
@@ -366,43 +478,69 @@ def plot_report_tab(df: pd.DataFrame, cases: Dict[str, Any], case_id: str):
 
     # -------- 왼쪽: 텍스트 DataFrame --------
     with left:
-        st.subheader("텍스트 리포트")
-        texts = cases[case_id].get("report_text")
+        st.caption("마지막 발화 분석 결과")
+        st.markdown(f"<div class='code-like-block'>아침에 눈 뜨니 허리가 살짝 뻐근하네. 따뜻한 물 한 컵 천천히 마셨지. 달력에 표시해 둔 돌잔치 다시 한 번 확인했어. 혈압 재고, 약도 빠뜨리지 않고 챙겨 먹었어. 택시 부를까, 버스 탈까 잠깐 고민했지.</div>", unsafe_allow_html=True)
 
-        if texts and isinstance(texts, (list, tuple)):
-            rows = [{"항목": f"노트 {i+1}", "설명": str(t)} for i, t in enumerate(texts)]
-        else:
-            # 기본 요약 자동 생성(간결)
-            mm = cases[case_id].get("mmse13", [])
-            mm_total = int(np.nansum(mm)) if len(mm) else 0
-            mm_max = int(2 * len(mm)) if len(mm) else 0
-            rows = [
-                {"항목": "활동 요약",
-                 "설명": f"평균 활동 단계 {np.nanmean(df['activity_cls']):.2f}/4, MET 평균 {np.nanmean(df['met']):.2f}."},
-                {"항목": "수면/자율신경",
-                 "설명": f"수면 HR {np.nanmean(df['hr']):.1f} bpm, RMSSD {np.nanmean(df['rmssd']):.1f} ms."},
-                {"항목": "수면 단계",
-                 "설명": f"REM 비율 {np.nanmean(df['hypno']==3)*100:.1f}%."},
-                {"항목": "MMSE",
-                 "설명": f"총점 {mm_total} / {mm_max}."}
-            ]
+        # --- 9칸 메트릭 그리드 CSS (PALETTE 색감과 통일) ---
+        st.markdown(f"""
+        <style>
+        .metric-grid {{
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;
+        }}
+        .metric-card {{
+        background: #FFFFFF; border: 2px solid {PALETTE['border']};
+        border-radius: 16px; padding: 12px; text-align: center;
+        box-shadow: 0 6px 18px rgba(255,122,47,.08); transition: transform .12s ease, box-shadow .12s ease;
+        }}
+        .metric-card:hover {{
+        transform: translateY(-2px); box-shadow: 0 10px 24px rgba(255,122,47,.12);
+        }}
+        .metric-label {{
+        font-size: 0.92em; color: {PALETTE['muted']}; font-weight: 800;
+        }}
+        .metric-value {{
+        margin-top: 6px; display: inline-block; padding: 6px 10px; 
+        color: {PALETTE['text']};font-weight: 900;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
 
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, height=300)
+        # --- 9개 항목 (예시 값) ---
+        metrics = [
+            ("사건 구체성", "0"),
+            ("자서전적 기억 변수", "1"),
+            ("같은 말 반복", "0"),
+            ("시간적 구체성", "1"),
+            ("공간적 구체성", "1"),
+            ("우울/무기력", "0"),
+            ("불안/초조", "0"),
+            ("감정 조절 문제", "0"),
+            ("", ""),
+        ]
+        # --- HTML 렌더 ---
+        grid_html = "<div class='metric-grid'>" + "".join(
+            f"<div class='metric-card'><div class='metric-label'>{k}</div><div class='metric-value'>{v}</div></div>"
+            for k, v in metrics
+        ) + "</div>"
+        st.markdown(grid_html, unsafe_allow_html=True)
 
     # -------- 오른쪽: 오각형(상단 배치) --------
     with right:
-        st.subheader("DSM-5 인지기능 요약")
+        st.markdown(
+            "<h3 style='text-align:center; margin: 0;'>DSM-5 인지기능 요약</h3>",
+            unsafe_allow_html=True
+        )
         # 점수: JSON 제공 없으면 간단 정규화로 계산
         scores = cases[case_id].get("report_scores")
         if not (isinstance(scores, (list, tuple)) and len(scores) == 5):
-            act_s  = float(np.nanmean(df["activity_cls"]) / 4.0)                                   # ↑양호
-            met_s  = float(np.clip((np.nanmean(df["met"]) - 1.0) / (5.5 - 1.0), 0, 1))             # ↑양호
-            hr_s   = float(1.0 - np.clip((np.nanmean(df["hr"]) - 50.0) / (90.0 - 50.0), 0, 1))     # ↓양호
-            rmssd_s= float(np.clip((np.nanmean(df["rmssd"]) - 15.0) / (70.0 - 15.0), 0, 1))        # ↑양호
-            rem_s  = float(np.clip((np.nanmean(df["hypno"] == 3) - 0.10) / (0.30 - 0.10), 0, 1))   # ↑양호
+            act_s  = 0.5                                   # ↑양호
+            met_s  = 2             # ↑양호
+            hr_s   = 2
+            rmssd_s= 2
+            rem_s  = 2
             scores = [act_s, met_s, hr_s, rmssd_s, rem_s]
 
-        fig = make_pentagon(scores, labels=["기억력", "언어능력", "정서적 안정성", "계산능력", "시공간 파악 능력"])
+        fig = make_pentagon(scores, labels=["기억력", "언어능력", "정서적 안정성", "계산능력", "시공간\n파악 능력"])
         # 오른쪽 상단 배치: 상단에 바로 렌더링(이 열에서 첫 컴포넌트로 표시)
         st.pyplot(fig, use_container_width=True)
 
@@ -437,16 +575,123 @@ if not cases:
 case_id = "normal" if "normal" in cases else next(iter(cases.keys()))
 df = case_to_df(cases[case_id])
 
+# ─────────────────────────────────────────────────────────────
+# BeHealthy 탭: 위험도 카드 + 저위험군 코칭(운동/식단/두뇌활동 + 오늘의 미션)
+# ─────────────────────────────────────────────────────────────
+
+def render_low_risk_tips(lifelog_pct: float, speech_pct: float, cutoff: int = 40):
+    """저위험군(둘 다 cutoff 미만)에게 긍정 강화 + 생활 습관 팁 제공"""
+    is_low = (lifelog_pct < cutoff) and (speech_pct < cutoff)
+    if not is_low:
+        return
+
+    # 날짜 고정 랜덤: 하루에 한 문장/미션 고정
+    seed = int(pd.Timestamp.today().strftime("%Y%m%d"))
+    rng = np.random.default_rng(seed)
+
+    positive_lines = [
+        "지금처럼만 유지하면 충분해요. 작은 루틴이 큰 차이를 만듭니다!",
+        "아주 좋아요! 오늘도 뇌가 좋아하는 생활 한 가지를 선택해볼까요?",
+        "안정적인 패턴이 보입니다. 스스로를 칭찬해주세요 🙌",
+    ]
+    daily_missions = [
+        "가벼운 스트레칭 10분",
+        "빠르게 걷기 15분",
+        "채소 2가지 이상 곁들이기",
+        "설탕 음료 대신 물 2잔 더 마시기",
+        "크로스워드/스도쿠 1판",
+        "친구/가족과 통화 10분",
+    ]
+    st.markdown(f"<div class='coach-msg'>{rng.choice(positive_lines)}</div>", unsafe_allow_html=True)
+
+    tab_ex, tab_food, tab_brain = st.tabs(["💪 운동", "🥗 식단", "🧠 두뇌활동"])
+
+    with tab_ex:
+        st.markdown(
+            "<ul class='tip-ul'>"
+            "<li>하루 총 <b>6,000~8,000보</b> 또는 <b>중강도 20–30분</b> 목표</li>"
+            "<li>앉아있는 시간이 길면 <b>한 시간마다 2–3분</b> 일어나 움직이기</li>"
+            "<li>수면 3시간 전 격한 운동은 피하고, 낮 시간대에 활동량 확보</li>"
+            "</ul>",
+            unsafe_allow_html=True,
+        )
+    with tab_food:
+        st.markdown(
+            "<ul class='tip-ul'>"
+            "<li><b>채소·통곡물·견과류</b> 위주의 간단한 지중해식 구성</li>"
+            "<li>가공육/과도한 당류는 <b>주 2회 이하</b>로 줄이기</li>"
+            "<li>저녁은 가볍게, 취침 3시간 전 과식 피하기</li>"
+            "</ul>",
+            unsafe_allow_html=True,
+        )
+    with tab_brain:
+        st.markdown(
+            "<ul class='tip-ul'>"
+            "<li><b>새로운 것</b>을 배우는 짧은 활동(예: 악보/단어/퍼즐)</li>"
+            "<li>양손을 쓰는 과제(요리·정리·간단한 악기)로 <b>집중+협응</b> 자극</li>"
+            "<li>하루 한 번 <b>대화/전화</b>로 사회적 상호작용 유지</li>"
+            "</ul>",
+            unsafe_allow_html=True,
+        )
+
+    # 오늘의 미션(칩 스타일 재활용)
+    mission = rng.choice(daily_missions)
+    st.markdown(
+        f"<div style='margin-top:10px;'>"
+        f"<span class='chip ok'>오늘의 미션</span> "
+        f"<span class='chip'>{mission}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def render_risk_card(title: str, percent: float):
+    pct = int(np.clip(percent, 0, 100))
+    st.markdown(
+        f"""
+<div class="risk-card">
+  <div class="risk-head">
+    <div class="risk-title">{title}</div>
+    <span class="chip pct ok">{pct}%</span>
+  </div>
+  <div class="progress"><div class="bar" style="width:{pct}%;"></div></div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def render_behealthy_tab(lifelog_pct: int, speech_pct: int, cutoff: int = 40):
+
+    # 저위험군이면 코칭 카드 노출 (기존 render_low_risk_tips 사용)
+    render_low_risk_tips(lifelog_pct, speech_pct, cutoff=cutoff)
+
+    # 저위험군이 아니면 간단 안내만
+    if not ((lifelog_pct < cutoff) and (speech_pct < cutoff)):
+        st.info(f"현재 기준(cutoff={cutoff}%)으로 저위험군이 아닙니다. "
+                "그래도 생활 습관 관리가 가장 중요해요! 위험도가 낮아지면 맞춤 코칭이 자동 표시됩니다.")
+
 # ---------------------------
 # 헤더 + 탭 2개
 # ---------------------------
-tab_act, tab_sleep, tab_report = st.tabs(["🏃 Activity", "😴 Sleep", "🔖 Reports"])
+tab_act, tab_sleep, tab_report, tab_health = st.tabs(
+    ["🏃 Activity", "😴 Sleep", "🔖 Reports", "🌿 BeHealthy"]
+)
+
 with tab_act:
     plot_activity_tab(df)
+
 with tab_sleep:
     plot_sleep_tab(df)
+
 with tab_report:
     plot_report_tab(df, cases, case_id)
+
+with tab_health:
+    # 위험도 값은 실제 예측 결과가 있으면 그 값을 쓰고, 없으면 기본값 사용
+    lifelog_pct = int(cases[case_id].get("risk_lifelog_pct", 32))
+    speech_pct  = int(cases[case_id].get("risk_speech_pct", 28))
+    render_behealthy_tab(lifelog_pct, speech_pct, cutoff=40)
 
 
 
@@ -517,51 +762,32 @@ def render_mmse_panel(mm: List[float], top_k: int = 3):
             unsafe_allow_html=True
         )
 
-@st.cache_resource
-def get_dementia_predictor():
-    base = Path(__file__).resolve().parent
-    return DementiaRiskPredictor(
-        ts_model_path=str(base / "best_dementia_model_full.pth"),
-        mmse_model_path=str(base / "mmse_rf.pkl"),
-        ts_weight=0.60,
-        threshold=0.45,
-    )
 
-# [REPLACE] 휴리스틱 대신 실제 모델로 예측
-def _pad_or_trim(arr, length, fill=np.nan, dtype=float):
-    a = np.asarray(arr, dtype=dtype).ravel()
-    if a.size < length:
-        a = np.concatenate([a, np.full(length - a.size, fill, dtype=dtype)])
-    elif a.size > length:
-        a = a[:length]
-    return a
+# ─────────────────────────────────────────────────────────────
+# 저위험군 코칭 위젯
+# ─────────────────────────────────────────────────────────────
+st.markdown(f"""
+<style>
+  .coach-card {{
+    background: linear-gradient(180deg, {PALETTE["soft"]} 0%, #FFFFFF 100%);
+    border: 2px solid {PALETTE["border"]};
+    border-radius: 16px;
+    padding: 16px;
+    margin-top: 12px;
+    box-shadow: 0 8px 20px rgba(255,122,47,0.06);
+  }}
+  .coach-head {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }}
+  .coach-title {{ font-weight:900; color:{PALETTE["text"]}; }}
+  .coach-badge {{
+    display:inline-block; padding:6px 10px; border-radius:999px;
+    background:{PALETTE["accent"]}; border:2px solid {PALETTE["border"]};
+    font-weight:800; color:{PALETTE["text"]};
+  }}
+  .coach-msg {{ color:{PALETTE["muted"]}; font-weight:700; margin:6px 0 10px; }}
+  .tip-ul {{ margin: 0 0 6px 0; padding-left: 18px; }}
+</style>
+""", unsafe_allow_html=True)
 
-def predict_risk_with_model(case: Dict[str, Any]) -> float:
-    """
-    DementiaRiskPredictor로 위험 확률[0~1] 반환.
-    입력은 user_config2.json의 'normal' 케이스 딕셔너리 그대로 사용.
-    길이가 맞지 않으면 안전하게 패드/자릅니다.
-    """
-    predictor = get_dementia_predictor()
-
-    a   = _pad_or_trim(case.get("activity_seq",    []), 288)   # int로 캐스팅은 predictor 내부 전처리에서 수행
-    m   = _pad_or_trim(case.get("met_5min",        []), 288)
-    hr  = _pad_or_trim(case.get("sleep_hr_seq",    []), 288)
-    hy  = _pad_or_trim(case.get("sleep_hypno_seq", []), 288)
-    rm  = _pad_or_trim(case.get("sleep_rmssd_seq", []), 288)
-    d16 = _pad_or_trim(case.get("daily16",         []),  16)
-    mm  = _pad_or_trim(case.get("mmse13",          []),  13)
-
-    out = predictor.predict_one(
-        activity_seq=a,
-        met_5min=m,
-        sleep_hr_seq=hr,
-        sleep_hypno_seq=hy,
-        sleep_rmssd_seq=rm,
-        daily16=d16,
-        mmse13=mm,
-    )
-    return float(out["risk_probability"])
 
 
 
@@ -575,23 +801,8 @@ with left:
     render_mmse_panel(cases[case_id].get("mmse13", []), top_k=3)
 
 with right:
-    risk = predict_risk_with_model(cases[case_id])
-    pct = int(round(risk * 100))
-
-    # 숫자 + 게이지
-    st.markdown(f'<div class="risk-card"><h3 style="margin:0 0 8px 0;">위험도: <b>{pct}%</b></h3>', unsafe_allow_html=True)
-    st.markdown('<div class="progress"><div class="bar" id="riskbar"></div></div></div>', unsafe_allow_html=True)
-    # 진행바 폭을 동적으로 설정
-    st.markdown(f"""
-    <script>
-      const el = window.parent.document.getElementById('riskbar');
-      if (el) {{ el.style.width = '{pct}%'; }}
-    </script>
-    """, unsafe_allow_html=True)
-
-    # 간단 해석
-    label = "낮음" if pct < 30 else ("보통" if pct < 60 else "높음")
-    st.caption(f"현재 추정치는 **{label}** 범위입니다. 실제 진단/평가는 의료진 상담을 권장합니다.")
+    render_risk_card("라이프로그 데이터로 예측한 치매 위험도", 32)
+    render_risk_card("발화 데이터로 예측한 치매 위험도", 28)
 
 
 

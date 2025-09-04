@@ -1,8 +1,17 @@
+
+
+
+
+
+
+
+
+########################################################################3
+
 import streamlit as st
 from datetime import datetime
 import random
 import time
-
 # -------------------------
 # 페이지/테마 기본 설정
 # -------------------------
@@ -60,6 +69,66 @@ CHAT_FONT = BASE_FONT + 1 # 채팅 글자는 약간 더 크게
 # -------------------------
 # CSS 스타일링 (노인친화적 폰트 및 디자인 적용)
 # -------------------------
+# --- Sidebar 미니 스타일 (배경 · 네비 링크 · 선택 강조) ---
+st.sidebar.markdown(
+    f"""
+<style>
+/* 사이드바 전체 배경 & 경계선 */
+section[data-testid="stSidebar"] {{
+  background: {PALETTE['soft']};
+  border-right: 1px solid {PALETTE['border']};
+}}
+
+/* 네비 리스트 패딩 */
+[data-testid="stSidebarNav"] ul {{ padding: 8px 10px; }}
+
+/* 네비 링크 기본 모양 */
+[data-testid="stSidebarNav"] a {{
+  display:block;
+  padding:12px 14px;
+  border-radius:14px;
+  font-weight:800;
+  color:{PALETTE['text']};
+  border:2px solid transparent;
+  transition:all .15s ease;
+}}
+
+/* 호버 */
+[data-testid="stSidebarNav"] a:hover {{
+  background:{PALETTE['soft']};
+  border-color:{PALETTE['border']};
+  transform:translateX(2px);
+}}
+
+/* 현재 선택된 페이지 */
+[data-testid="stSidebarNav"] a[aria-current="page"] {{
+  background:linear-gradient(180deg, {PALETTE['soft']} 0%, #FFFFFF 100%);
+  border:2px solid {PALETTE['border']};
+  box-shadow:0 6px 18px rgba(255,122,47,.08);
+  color:{PALETTE['text']};
+}}
+
+/* 상단 작은 브랜드 박스(선택 사항) */
+.sidebar-brand {{
+  background:#FFFFFF;
+  border:2px solid {PALETTE['border']};
+  border-radius:16px;
+  padding:14px 16px;
+  margin:12px 12px 6px;
+  font-weight:900;
+}}
+.sidebar-brand .badge {{
+  display:inline-block; padding:4px 8px; border-radius:999px;
+  background:{PALETTE['accent']}; color:{PALETTE['text']};
+  border:1.5px solid {PALETTE['border']}; font-size:.8em; font-weight:800;
+}}
+</style>
+
+""",
+    unsafe_allow_html=True,
+)
+
+
 st.markdown(
     f"""
 <style>
@@ -245,16 +314,3 @@ if user_text:
     st.rerun()
 
 
-# -------------------------
-# 간단 통계
-# -------------------------
-# 사용자가 메시지를 한 번 이상 보냈을 때만 통계 표시
-if len([m for m in st.session_state.messages if m["role"] == "user"]) > 0:
-    st.markdown("### ✨ 오늘의 대화 기록")
-    cols = st.columns(3)
-    with cols[0]:
-        st.metric("총 대화 수", f"{len(st.session_state.messages)}개")
-    with cols[1]:
-        st.metric("내 메시지", f"{len([m for m in st.session_state.messages if m['role']=='user'])}개")
-    with cols[2]:
-        st.metric("오늘의 기분", mood.split()[0])
